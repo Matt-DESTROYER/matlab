@@ -6,6 +6,7 @@ A Rust CLI tool intending to incrementally clone functionality of matlab.
 ### Types
  - Number: ASCII numbers (eg `1`, `1.0`, `.0`)
  - Matrix: Denoted with `[]` with values separated with commas (`,`) or spaces (` `) and rows separated by semicolons (`;`) (eg `[ 1, 2, 3 ; 4, 5, 6 ]`)
+ - Variable: Must be consecutive alphabetic ASCII characters.
 
 ### Operations
  - Addition (`+`)
@@ -111,4 +112,21 @@ A Rust CLI tool intending to incrementally clone functionality of matlab.
 1 
 >> 2 >= 3
 0
+```
+ - Assign (`=`)
+```
+>> A = 1
+1
+>> A
+A = 1
+>> A = [ 1 2 3 ; 4 5 6 ]
+[
+  1 2 3
+  4 5 6
+]
+>> A
+A = [
+  1 2 3
+  4 5 6
+]
 ```
