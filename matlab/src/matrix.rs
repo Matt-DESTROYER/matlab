@@ -56,6 +56,11 @@ impl Matrix {
 
 		Ok(self)
 	}
+	pub fn add_scalar(&mut self, num: f64) {
+		for i in 0..self.buffer.len() {
+			self.buffer[i] += num;
+		}
+	}
 
 	pub fn checked_subtract(&mut self, other: &Self) -> Result<&Self, &str> {
 		if self.rows != other.rows || self.columns != other.columns {
@@ -71,8 +76,11 @@ impl Matrix {
 	pub fn checked_sub(&mut self, other: &Self) -> Result<&Self, &str> {
 		self.checked_subtract(other)
 	}
+	pub fn subtract_scalar(&mut self, num: f64) {
+		self.add_scalar(-num);
+	}
 
-	pub fn checked_multiply(&self, other: &Self) -> Result<Self, &str> {
+	pub fn checked_multiply(&self, other: &Self) -> Result<&Self, &str> {
 		if self.columns != other.rows {
 			return Err("Cannot multiply matrices of incompatible dimensions");
 		}
@@ -88,14 +96,25 @@ impl Matrix {
 				}
 			}
 		}
+		
 
-		Ok(result)
+		Ok(self)
 	}
-	pub fn checked_mult(&self, other: &Self) -> Result<Self, &str> {
+	pub fn checked_mult(&self, other: &Self) -> Result<&Self, &str> {
 		self.checked_multiply(other)
 	}
-	pub fn checked_mul(&self, other: &Self) -> Result<Self, &str> {
+	pub fn checked_mul(&self, other: &Self) -> Result<&Self, &str> {
 		self.checked_multiply(other)
+	}
+	pub fn multiply_by_scalar(&mut self, num: f64) {
+		for i in 0..self.buffer.len() {
+			self.buffer[i] *= num;
+		}
+	}
+	pub fn divide_by_scalar(&mut self, num: f64) {
+		for i in 0..self.buffer.len() {
+			self.buffer[i] /= num;
+		}
 	}
 
 	pub fn to_string(&self) -> String {
@@ -143,7 +162,8 @@ impl Mul for Matrix {
 	fn mul(self, rhs: Self) -> Self::Output {
 		self
 			.checked_multiply(&rhs)
-			.expect("Matrix multiplication failed")
+			.expect("Matrix multiplication failed");
+		self
 	}
 }
 

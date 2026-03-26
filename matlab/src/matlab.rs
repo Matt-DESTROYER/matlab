@@ -1,163 +1,356 @@
-use crate::matrix::Matrix;
 use std::str::FromStr;
-use crate::tools::Searchable;
-
 use std::collections::BTreeMap;
 
-fn is_number(char: char) -> bool {
-	char.is_ascii_digit() || char == '.'
-}
-fn is_matrix(char: char) -> bool {
-	char == '['
-}
-fn is_operator(char: char) -> bool {
-	"+-*/<>!=".contains(char)
-}
-fn is_variable(char: char) -> bool {
-	char.is_alphabetic()
-}
+use crate::matrix::Matrix;
+use crate::tools::Searchable;
+use crate::tokeniser::{Token, Operator, tokenise};
 
-fn parse_token(raw_token: &str, token_type: TokenType) -> Result<Token, String> {
-	if raw_token.is_empty() {
-		return Err("Token is empty".to_owned());
-	}
-
-	match token_type {
-			TokenType::Number => {
-				let num: f64 = match raw_token.parse() {
-					Ok(n) => n,
-					Err(_) => return Err(format!("Failed to parse number '{}'", raw_token))
-				};
-
-				Ok(Token::Number(num))
-			},
-			TokenType::Variable => Ok(Token::Variable(raw_token.to_string())),
-			TokenType::Operator => Ok(Token::Operator(raw_token.to_string())),
-			TokenType::Matrix => {
-				let mat: Matrix = match raw_token.parse() {
-					Ok(m) => m,
-					Err(_) => return Err(format!("Failed to parse matrix '{}'", raw_token))
-				};
-
-				Ok(Token::Matrix(mat))
-			},
-			_ => Err("Token type not implemented yet.".to_owned())
-		}
-}
-fn push_token(tokens: &mut Vec<Token>, raw_token: &str, token_type: TokenType) -> Result<(), String> {
-	let token = match parse_token(raw_token , token_type) {
-		Ok(t) => t,
-		Err(err) => return Err(err)
-	};
-	tokens.push(token);
-	Ok(())
-}
-
-fn tokenise(input: &str) -> Result<Vec<Token>, String> {
-	let mut tokens: Vec<Token> = Vec::new();
-
-	let mut accum_type = TokenType::None;
-	let mut accum = String::new();
-	for char in input.chars() {
-		// determine type of current token if unknown
-		if accum_type == TokenType::None {
-			if char.is_whitespace() {
-				continue;
-			} else if is_number(char) {
-				accum_type = TokenType::Number;
-			} else if is_matrix(char) {
-				accum_type = TokenType::Matrix;
-			} else if is_operator(char) {
-				accum_type = TokenType::Operator;
-			} else if is_variable(char) {
-				accum_type = TokenType::Variable;
+fn group_by_operators(expressions: &mut Vec<ExpressionElement>, operators: Vec<Operator>) {
+	let mut i = 0;
+	loop {
+		let token = match &expressions[i] {
+			ExpressionElement::Token(t) => t.clone(),
+			ExpressionElement::Expression(_) => {
+				i += 1;
+				if i > expressions.len() - 1 {
+					break;
+				}
+				continue
 			}
-			accum = String::new();
-			accum.push(char);
-			continue;
+		};
+		if let Token::Operator(operator) = &token && operators.contains(operator) {
+			i -= 1;
+			let slice: &Vec<ExpressionElement> = &expressions.drain(i..i+3).collect();
+			let expression = ExpressionElement::Expression(Box::new(Expression {
+				lhs: slice[0].clone(),
+				operator: *operator,
+				rhs: slice[2].clone()
+			}));
+			expressions.insert(i, expression);
 		}
 
-		// accumulate current token
-		match accum_type {
-			TokenType::Number => {
-				if is_number(char) {
-					accum.push(char);
-				} else {
-					let _ = push_token(&mut tokens, &accum, accum_type);
-					accum_type = TokenType::None;
-				}
-			},
-			TokenType::Variable => {
-				if char.is_alphabetic() {
-					accum.push(char);
-				} else {
-					let _ = push_token(&mut tokens, &accum, accum_type);
-					accum_type = TokenType::None;
-				}
-			},
-			TokenType::Operator => {
-				if accum.len() < 2 && is_operator(char) {
-					accum.push(char);
-				} else {
-					let _ = push_token(&mut tokens, &accum, accum_type);
-					accum_type = TokenType::None;
-				}
-			},
-			TokenType::Matrix => {
-				accum.push(char);
+		i += 1;
+		if i > expressions.len() - 1 {
+			break;
+		}
+	}
+}
+fn tokens_to_expressions(tokens: &Vec<Token>) -> Result<Vec<ExpressionElement>, &str> {
+	let mut expressions: Vec<ExpressionElement> = tokens.iter()
+		.map(|token| ExpressionElement::Token(token.clone())).collect();
 
-				if char == ']' {
-					let _ = push_token(&mut tokens, &accum, accum_type);
-					accum_type = TokenType::None;
-				}
-			},
+	group_by_operators(&mut expressions, vec![Operator::Power]);
+	group_by_operators(&mut expressions, vec![Operator::Multiply, Operator::Divide]);
+	group_by_operators(&mut expressions, vec![Operator::Add, Operator::Subtract]);
+	group_by_operators(&mut expressions, vec![Operator::EqualTo, Operator::NotEqualTo, Operator::LessThan, Operator::GreaterThan, Operator::LessThanOrEqualTo, Operator::GreaterThanOrEqualTo]);
+	group_by_operators(&mut expressions, vec![Operator::Assign]);
+
+	Ok(expressions)
+}
+
+pub struct Evaluator {
+	variables: BTreeMap<String, Token>
+}
+
+impl Evaluator {
+	pub fn new() -> Self {
+		Evaluator { variables: BTreeMap::new() }
+	}
+	pub fn evaluate(&mut self, input: &str) {
+		let tokens = match tokenise(input) {
+			Ok(t) => t,
+			Err(err) => {
+				eprintln!("Error: {}", err);
+				return;
+			}
+		};
+
+		let expression_list = match tokens_to_expressions(&tokens) {
+			Ok(e) => e,
+			Err(err) => {
+				eprintln!("Error: {}", err);
+				return;
+			}
+		};
+
+		let result = match expression_list[0].evaluate(&mut self.variables) {
+			Ok(t) => t,
+			Err(err) => {
+				println!("Error: {}", err);
+				return;
+			}
+		};
+		match result {
+			Token::Number(n) => println!("{}", n),
+			Token::Matrix(m) => println!("{}", m),
 			_ => {}
 		}
 	}
+}
 
-	if !accum.is_empty() {
-		let _ = push_token(&mut tokens, &accum, accum_type);
+fn power(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => {
+			match rhs {
+				Token::Number(rhs) => Ok(Token::Number(lhs.powf(*rhs))),
+				_ => Err("Cannot raise LHS by the type of RHS".to_owned())
+			}
+		},
+		// Token::Matrix(lhs) => {},
+		_ => Err("Cannot compute power of type of LHS".to_owned())
 	}
-
-	Ok(tokens)
 }
-
-pub fn evaluate(input: &str) {
-	static mut VARIABLES: BTreeMap<String, f64> = BTreeMap::new();
-
-	let tokens = match tokenise(input) {
-		Ok(t) => t,
-		Err(err) => {
-			eprintln!("Error: {}", err);
-			return;
+fn add(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Matrix(lhs) => {
+			match rhs {
+				Token::Number(rhs) => {
+					lhs.add_scalar(*rhs);
+					Ok(Token::Matrix(lhs.clone()))
+				},
+				Token::Matrix(rhs) => match lhs.checked_add(rhs) {
+					Ok(m) => Ok(Token::Matrix(m.clone())),
+					Err(err) => Err(err.to_owned())
+				},
+				_ => Err("Cannot add RHS to matrix".to_owned())
+			}
+		},
+		Token::Number(lhs) => {
+			match rhs {
+				Token::Number(rhs) => {
+					Ok(Token::Number(*lhs + *rhs))
+				},
+				Token::Matrix(rhs) => {
+					rhs.add_scalar(*lhs);
+					Ok(Token::Matrix(rhs.clone()))
+				},
+				_ => Err("Cannot add RHS to number".to_owned())
+			}
 		}
-	};
-
-	// TODO
-	// start evaluating!!!
+		_ => Err("Cannot add to LHS type".to_owned())
+	}
 }
-
-enum Variable {
-	Bool(bool),
-	Number(f64),
-	Matrix(Matrix)
+fn subtract(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Matrix(lhs) => {
+			match rhs {
+				Token::Number(rhs) => {
+					lhs.subtract_scalar(*rhs);
+					Ok(Token::Matrix(lhs.clone()))
+				},
+				Token::Matrix(rhs) => match &mut lhs.checked_subtract(rhs) {
+					Ok(_) => Ok(Token::Matrix(lhs.clone())),
+					Err(err) => Err(err.to_owned())
+				},
+				_ => Err("Cannot add RHS to matrix".to_owned())
+			}
+		},
+		Token::Number(lhs) => {
+			match rhs {
+				Token::Number(rhs) => {
+					Ok(Token::Number(*lhs - *rhs))
+				},
+				Token::Matrix(rhs) => {
+					rhs.add_scalar(*lhs);
+					Ok(Token::Matrix(rhs.clone()))
+				},
+				_ => Err("Cannot add RHS to number".to_owned())
+			}
+		}
+		_ => Err("Cannot add to LHS type".to_owned())
+	}
+}
+fn multiply(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(*lhs * *rhs)),
+			Token::Matrix(rhs) => {
+				rhs.multiply_by_scalar(*lhs);
+				Ok(Token::Matrix(rhs.clone()))
+			},
+			_ => Err("Cannot multiply number by type of RHS".to_owned())
+		},
+		Token::Matrix(lhs) => match rhs {
+			Token::Number(rhs) => {
+				lhs.multiply_by_scalar(*rhs);
+				Ok(Token::Matrix(lhs.clone()))
+			},
+			Token::Matrix(rhs) => {
+				match lhs.checked_multiply(rhs) {
+					Ok(m) => Ok(Token::Matrix(m.clone())),
+					Err(err) => Err(format!("{}", err))
+				}
+			},
+			_ => Err("Cannot multiply matrix by type of RHS".to_owned())
+		}
+		_ => Err("Cannot multiply type of LHS".to_owned())
+	}
+}
+fn divide(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(*lhs / *rhs)),
+			_ => Err("Cannot divide by type of RHS".to_owned())
+		},
+		Token::Matrix(lhs) => match rhs {
+			Token::Number(rhs) => {
+				lhs.divide_by_scalar(*rhs);
+				Ok(Token::Matrix(lhs.clone()))
+			},
+			_ => Err("Can only divide matrix by a number".to_owned())
+		},
+		_ => Err("Cannot divide type of LHS".to_owned())
+	}
+}
+fn equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs == rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Cannot compare equality of different types".to_owned())
+		},
+		//Token::Matrix(lhs) => match rhs {
+		//	Token::Matrix(rhs) => {}
+		//}
+		_ => Err("Cannot compare equality of LHS type".to_owned())
+	}
+}
+fn not_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs != rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Cannot compare inequality of different types".to_owned())
+		},
+		//Token::Matrix(lhs) => match rhs {
+		//	Token::Matrix(rhs) => {}
+		//}
+		_ => Err("Cannot compare inequality of LHS type".to_owned())
+	}
+}
+fn less_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs < rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Only numbers can be compared with less than".to_owned())
+		},
+		_ => Err("Only numbers can be compared with less than".to_owned())
+	}
+}
+fn less_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs <= rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Only numbers can be compared with less than or equal to".to_owned())
+		},
+		_ => Err("Only numbers can be compared with less than or equal to".to_owned())
+	}
+}
+fn greater_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs > rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Only numbers can be compared with greater than".to_owned())
+		},
+		_ => Err("Only numbers can be compared with greater than".to_owned())
+	}
+}
+fn greater_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+	match lhs {
+		Token::Number(lhs) => match rhs {
+			Token::Number(rhs) => Ok(Token::Number(if lhs >= rhs { 1.0 } else { 0.0 })),
+			// error rather than silently fail because this is likely a mistake
+			_ => Err("Only numbers can be compared with greater than or equal to".to_owned())
+		},
+		_ => Err("Only numbers can be compared with greater than or equal to".to_owned())
+	}
 }
 
 #[derive(Clone)]
-enum Token {
-	Number(f64),
-	Variable(String),
-	Operator(String),
-	Matrix(Matrix)
+enum ExpressionElement {
+	Token(Token),
+	Expression(Box<Expression>)
 }
 
-#[derive(Copy, Clone, PartialEq)]
-enum TokenType {
-	None,
-	Number,
-	Variable,
-	Operator,
-	Matrix
+impl ExpressionElement {
+	fn evaluate(&self, variables: &mut BTreeMap<String, Token>) -> Result<Token, String> {
+		let expression = match self {
+			ExpressionElement::Expression(e) => e,
+			ExpressionElement::Token(t) => return Ok(t.clone())
+		};
+
+		// recursively evaluate expression tree
+		if let ExpressionElement::Expression(_) = &expression.lhs {
+			match expression.lhs.evaluate(variables) {
+				Ok(_) => {},
+				Err(err) => return Err(err)
+			};
+		}
+		if let ExpressionElement::Expression(_) = &expression.rhs {
+			match expression.rhs.evaluate(variables) {
+				Ok(_) => {},
+				Err(err) => return Err(err)
+			};
+		}
+
+		// if either we are still left with an expression, something has gone very bad
+		let mut lhs = match &expression.lhs {
+			ExpressionElement::Token(t) => t.clone(),
+			ExpressionElement::Expression(_) => return Err("Failed to properly evaluate expression".to_owned())
+		};
+		let mut rhs = match &expression.rhs {
+			ExpressionElement::Token(t) => t.clone(),
+			ExpressionElement::Expression(_) => return Err("Failed to properly evaluate expression".to_owned())
+		};
+
+		// dereference variables (skip LHS on assign operations)
+		if expression.operator != Operator::Assign && let Token::Variable(variable) = lhs {
+			lhs = match variables.get(&variable) {
+				Some(t) => t.clone(),
+				None => return Err(format!("Could not retrieve variable '{}'", variable))
+			};
+		}
+		if let Token::Variable(variable) = rhs {
+			rhs = match variables.get(&variable) {
+				Some(t) => t.clone(),
+				None => return Err(format!("Could not retrieve variable '{}'", variable))
+			};
+		}
+
+		match expression.operator {
+			Operator::Power => power(&mut lhs, &mut rhs),
+			Operator::Add => add(&mut lhs, &mut rhs),
+			Operator::Subtract => subtract(&mut lhs, &mut rhs),
+			Operator::Multiply => multiply(&mut lhs, &mut rhs),
+			Operator::Divide => divide(&mut lhs, &mut rhs),
+			Operator::EqualTo => equal_to(&mut lhs, &mut rhs),
+			Operator::NotEqualTo => not_equal_to(&mut lhs, &mut rhs),
+			Operator::LessThan => less_than(&mut lhs, &mut rhs),
+			Operator::LessThanOrEqualTo => less_than_or_equal_to(&mut lhs, &mut rhs),
+			Operator::GreaterThan => greater_than(&mut lhs, &mut rhs),
+			Operator::GreaterThanOrEqualTo => greater_than_or_equal_to(&mut lhs, &mut rhs),
+			Operator::Assign => {
+				let variable = match lhs {
+					Token::Variable(v) => v,
+					_ => return Err("Can only assign to variables, maybe you meant to compare with '=='?".to_owned())
+				};
+				variables.insert(variable.to_string(), rhs.clone());
+				Ok(rhs.clone())
+			},
+			#[allow(unreachable_patterns)]
+			_ => return Err("Unknown operator".to_owned())
+		}
+	}
+}
+
+#[derive(Clone)]
+struct Expression {
+	lhs: ExpressionElement,
+	rhs: ExpressionElement,
+	operator: Operator
 }
 
 impl FromStr for Matrix {

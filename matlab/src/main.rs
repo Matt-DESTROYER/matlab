@@ -1,16 +1,18 @@
 use std::io::{self, Write};
 
 mod tools;
-
 mod colours;
 use colours::Colours;
-
 mod matrix;
+mod tokeniser;
 mod matlab;
+use crate::matlab::Evaluator;
 
 fn main() {
 	let stdin = io::stdin();
 	let mut stdout = io::stdout();
+
+	let mut evaluator = Evaluator::new();
 
 	loop {
 		print!(">> ");
@@ -33,6 +35,6 @@ fn main() {
 			return;
 		}
 
-		matlab::evaluate(&input);
+		evaluator.evaluate(&input);
 	}
 }
