@@ -80,7 +80,7 @@ impl Matrix {
 		self.add_scalar(-num);
 	}
 
-	pub fn checked_multiply(&self, other: &Self) -> Result<&Self, &str> {
+	pub fn checked_multiply(&self, other: &Self) -> Result<Self, &str> {
 		if self.columns != other.rows {
 			return Err("Cannot multiply matrices of incompatible dimensions");
 		}
@@ -98,12 +98,12 @@ impl Matrix {
 		}
 		
 
-		Ok(self)
+		Ok(result)
 	}
-	pub fn checked_mult(&self, other: &Self) -> Result<&Self, &str> {
+	pub fn checked_mult(&self, other: &Self) -> Result<Self, &str> {
 		self.checked_multiply(other)
 	}
-	pub fn checked_mul(&self, other: &Self) -> Result<&Self, &str> {
+	pub fn checked_mul(&self, other: &Self) -> Result<Self, &str> {
 		self.checked_multiply(other)
 	}
 	pub fn multiply_by_scalar(&mut self, num: f64) {
@@ -145,7 +145,6 @@ impl Add for Matrix {
 		self
 	}
 }
-
 impl Sub for Matrix {
 	type Output = Self;
 
@@ -155,15 +154,13 @@ impl Sub for Matrix {
 		self
 	}
 }
-
 impl Mul for Matrix {
 	type Output = Self;
 
 	fn mul(self, rhs: Self) -> Self::Output {
 		self
 			.checked_multiply(&rhs)
-			.expect("Matrix multiplication failed");
-		self
+			.expect("Matrix multiplication failed")
 	}
 }
 

@@ -139,10 +139,10 @@ fn subtract(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 					Ok(Token::Matrix(lhs.clone()))
 				},
 				Token::Matrix(rhs) => match &mut lhs.checked_subtract(rhs) {
-					Ok(_) => Ok(Token::Matrix(lhs.clone())),
+					Ok(m) => Ok(Token::Matrix(m.clone())),
 					Err(err) => Err(err.to_owned())
 				},
-				_ => Err("Cannot add RHS to matrix".to_owned())
+				_ => Err("Cannot subtract RHS from matrix".to_owned())
 			}
 		},
 		Token::Number(lhs) => {
@@ -150,11 +150,7 @@ fn subtract(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 				Token::Number(rhs) => {
 					Ok(Token::Number(*lhs - *rhs))
 				},
-				Token::Matrix(rhs) => {
-					rhs.add_scalar(*lhs);
-					Ok(Token::Matrix(rhs.clone()))
-				},
-				_ => Err("Cannot add RHS to number".to_owned())
+				_ => Err("Cannot subtract RHS from number".to_owned())
 			}
 		}
 		_ => Err("Cannot add to LHS type".to_owned())
@@ -400,7 +396,7 @@ impl FromStr for Matrix {
 			
 			row.push(num);
 		}
-		if rows.len() > 0 {
+		if row.len() > 0 {
 			rows.push(row);
 		}
 
