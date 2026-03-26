@@ -173,7 +173,7 @@ fn multiply(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 			},
 			Token::Matrix(rhs) => {
 				match lhs.checked_multiply(rhs) {
-					Ok(m) => Ok(Token::Matrix(m.clone())),
+					Ok(m) => Ok(Token::Matrix(m)),
 					Err(err) => Err(format!("{}", err))
 				}
 			},
