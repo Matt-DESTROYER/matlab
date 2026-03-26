@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::matrix::Matrix;
 use crate::tools::Searchable;
-use crate::tokeniser::{Token, Operator, tokenise};
+use crate::tokeniser::{Token, TokenResult, Operator, tokenise};
 
 fn group_by_operators(expressions: &mut Vec<ExpressionElement>, operators: Vec<Operator>) {
 	let mut i = 0;
@@ -88,7 +88,7 @@ impl Evaluator {
 	}
 }
 
-fn power(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn power(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => {
 			match rhs {
@@ -100,7 +100,7 @@ fn power(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot compute power of type of LHS".to_owned())
 	}
 }
-fn add(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn add(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Matrix(lhs) => {
 			match rhs {
@@ -130,7 +130,7 @@ fn add(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot add to LHS type".to_owned())
 	}
 }
-fn subtract(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn subtract(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Matrix(lhs) => {
 			match rhs {
@@ -160,7 +160,7 @@ fn subtract(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot add to LHS type".to_owned())
 	}
 }
-fn multiply(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn multiply(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(*lhs * *rhs)),
@@ -186,7 +186,7 @@ fn multiply(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot multiply type of LHS".to_owned())
 	}
 }
-fn divide(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn divide(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(*lhs / *rhs)),
@@ -202,7 +202,7 @@ fn divide(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot divide type of LHS".to_owned())
 	}
 }
-fn equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs == rhs { 1.0 } else { 0.0 })),
@@ -215,7 +215,7 @@ fn equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot compare equality of LHS type".to_owned())
 	}
 }
-fn not_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn not_equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs != rhs { 1.0 } else { 0.0 })),
@@ -228,7 +228,7 @@ fn not_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Cannot compare inequality of LHS type".to_owned())
 	}
 }
-fn less_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn less_than(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs < rhs { 1.0 } else { 0.0 })),
@@ -238,7 +238,7 @@ fn less_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Only numbers can be compared with less than".to_owned())
 	}
 }
-fn less_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn less_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs <= rhs { 1.0 } else { 0.0 })),
@@ -248,7 +248,7 @@ fn less_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, Stri
 		_ => Err("Only numbers can be compared with less than or equal to".to_owned())
 	}
 }
-fn greater_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn greater_than(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs > rhs { 1.0 } else { 0.0 })),
@@ -258,7 +258,7 @@ fn greater_than(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
 		_ => Err("Only numbers can be compared with greater than".to_owned())
 	}
 }
-fn greater_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> Result<Token, String> {
+fn greater_than_or_equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 	match lhs {
 		Token::Number(lhs) => match rhs {
 			Token::Number(rhs) => Ok(Token::Number(if lhs >= rhs { 1.0 } else { 0.0 })),
@@ -276,7 +276,7 @@ enum ExpressionElement {
 }
 
 impl ExpressionElement {
-	fn evaluate(&self, variables: &mut BTreeMap<String, Token>) -> Result<Token, String> {
+	fn evaluate(&self, variables: &mut BTreeMap<String, Token>) -> TokenResult {
 		let expression = match self {
 			ExpressionElement::Expression(e) => e,
 			ExpressionElement::Token(t) => return Ok(t.clone())

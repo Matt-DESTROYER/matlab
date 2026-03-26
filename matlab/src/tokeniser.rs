@@ -34,6 +34,8 @@ enum TokenType {
 	Matrix
 }
 
+pub type TokenResult = Result<Token, String>;
+
 fn is_number(char: char) -> bool {
 	char.is_ascii_digit() || char == '.'
 }
@@ -66,7 +68,7 @@ fn parse_operator(operator: &str) -> Result<Operator, &str> {
 	})
 }
 
-fn parse_token(raw_token: &str, token_type: TokenType) -> Result<Token, String> {
+fn parse_token(raw_token: &str, token_type: TokenType) -> TokenResult {
 	if raw_token.is_empty() {
 		return Err("Token is empty".to_owned());
 	}
