@@ -117,6 +117,18 @@ impl Matrix {
 		}
 	}
 
+	pub fn equals(&self, other: &Self) -> bool {
+		if self.rows != other.rows || self.columns != other.columns {
+			return false;
+		}
+		for i in 0..self.buffer.len() {
+			if self.buffer[i] != other.buffer[i] {
+				return false;
+			}
+		}
+		return true
+	}
+
 	pub fn to_string(&self) -> String {
 		let mut stringified = String::new();
 		stringified.push('[');

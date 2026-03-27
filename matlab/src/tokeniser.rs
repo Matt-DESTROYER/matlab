@@ -19,6 +19,8 @@ pub enum Operator {
 	LessThanOrEqualTo,
 	GreaterThan,
 	GreaterThanOrEqualTo,
+	OpenGroup,
+	CloseGroup,
 	Assign
 }
 
@@ -37,6 +39,8 @@ impl Display for Operator {
 			Operator::LessThanOrEqualTo    => write!(f, "LessThanOrEqualTo"),
 			Operator::GreaterThan          => write!(f, "GreaterThan"),
 			Operator::GreaterThanOrEqualTo => write!(f, "GreaterThanOrEqualTo"),
+			Operator::OpenGroup            => write!(f, "OpenGroup"),
+			Operator::CloseGroup           => write!(f, "CloseGroup"),
 			Operator::Assign               => write!(f, "Assign")
 		}
 	}
@@ -63,17 +67,28 @@ enum TokenType {
 
 pub type TokenResult = Result<Token, String>;
 
-fn is_number(char: char) -> bool {
-	char.is_ascii_digit() || char == '.'
+const VALID_OPERATORS: [&str; 16] = ["^", "**", "*", "/", "+", "-", "==", "!=", "<", "<=", ">", ">=", "(", ")", "!", "="];
+const MAX_OPERATOR_LENGTH: usize = 2;
+fn valid_operator(operator: &str) -> bool {
+	VALID_OPERATORS.contains(&operator)
 }
-fn is_matrix(char: char) -> bool {
-	char == '['
+
+fn is_number(c: char) -> bool {
+	c.is_ascii_digit() || c == '.'
 }
-fn is_operator(char: char) -> bool {
-	"+-*/<>!=".contains(char)
+fn is_matrix(c: char) -> bool {
+	c == '['
 }
-fn is_variable(char: char) -> bool {
-	char.is_alphabetic()
+fn is_operator(c: char) -> bool {
+	for op in VALID_OPERATORS {
+		if op.contains(c) {
+			return true;
+		}
+	}
+	false
+}
+fn is_variable(c: char) -> bool {
+	c.is_alphabetic()
 }
 
 fn parse_operator(operator: &str) -> Result<Operator, &str> {
@@ -89,9 +104,11 @@ fn parse_operator(operator: &str) -> Result<Operator, &str> {
 		">"        => Operator::GreaterThan,
 		"<="       => Operator::LessThanOrEqualTo,
 		">="       => Operator::GreaterThanOrEqualTo,
+		"("        => Operator::OpenGroup,
+		")"        => Operator::CloseGroup,
 		"!"        => Operator::Not,
 		"="        => Operator::Assign,
-		_ => return Err("Unknown operator")
+		_ => return Err("Operator not yet implemented")
 	})
 }
 
@@ -109,7 +126,7 @@ fn parse_token(raw_token: &str, token_type: TokenType) -> TokenResult {
 
 				Ok(Token::Number(num))
 			},
-			TokenType::Variable => Ok(Token::Variable(raw_token.to_owned())),
+			TokenType::Variable | TokenType::Function => Ok(Token::Variable(raw_token.to_owned())),
 			TokenType::Operator => {
 				let operator = match parse_operator(raw_token) {
 					Ok(o) => o,
@@ -139,6 +156,22 @@ fn push_token(tokens: &mut Vec<Token>, raw_token: &str, token_type: TokenType) -
 	Ok(())
 }
 
+fn token_type(char: char) -> TokenType {
+	if char.is_whitespace() {
+		TokenType::None
+	} else if is_number(char) {
+		TokenType::Number
+	} else if is_matrix(char) {
+		TokenType::Matrix
+	} else if is_operator(char) {
+		TokenType::Operator
+	} else if is_variable(char) {
+		TokenType::Variable
+	} else {
+		TokenType::None
+	}
+}
+
 pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 	let mut tokens: Vec<Token> = Vec::new();
 
@@ -147,17 +180,7 @@ pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 	for char in input.chars() {
 		// determine type of current token if unknown
 		if accum_type == TokenType::None {
-			if char.is_whitespace() {
-				continue;
-			} else if is_number(char) {
-				accum_type = TokenType::Number;
-			} else if is_matrix(char) {
-				accum_type = TokenType::Matrix;
-			} else if is_operator(char) {
-				accum_type = TokenType::Operator;
-			} else if is_variable(char) {
-				accum_type = TokenType::Variable;
-			}
+			accum_type = token_type(char);
 			accum = String::new();
 			accum.push(char);
 			continue;
@@ -173,43 +196,52 @@ pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 						Ok(_) => {},
 						Err(err) => return Err(err)
 					}
-					accum_type = TokenType::None;
+					accum_type = token_type(char);
+					accum = String::from(char);
 				}
 			},
 			TokenType::Variable => {
 				if char.is_alphabetic() {
 					accum.push(char);
 				} else if char == '(' {
-					accum_type = TokenType::Function;
-					accum.push(char);
+					match push_token(&mut tokens, &accum, TokenType::Function) {
+						Ok(_) => {},
+						Err(err) => return Err(err)
+					}
+					match push_token(&mut tokens, &"(", TokenType::Operator) {
+						Ok(_) => {},
+						Err(err) => return Err(err)
+					};
+					accum_type = TokenType::None;
 				} else {
 					match push_token(&mut tokens, &accum, accum_type) {
 						Ok(_) => {},
 						Err(err) => return Err(err)
 					}
-					accum_type = TokenType::None;
-				}
-			},
-			TokenType::Function => {
-				accum.push(char);
-
-				if char == ')' {
-					match push_token(&mut tokens, &accum, accum_type) {
-						Ok(_) => {},
-						Err(err) => return Err(err)
-					}
-					accum_type = TokenType::None;
+					accum_type = token_type(char);
+					accum = String::from(char);
 				}
 			},
 			TokenType::Operator => {
-				if accum.len() < 2 && is_operator(char) {
+				if accum.len() < MAX_OPERATOR_LENGTH && is_operator(char) {
+					let new_accum = accum.clone() + &char.to_string();
+					if !valid_operator(&new_accum) {
+						match push_token(&mut tokens, &accum, accum_type) {
+							Ok(_) => {},
+							Err(err) => return Err(err)
+						}
+						accum_type = token_type(char);
+						accum = String::from(char);
+						continue;
+					}
 					accum.push(char);
 				} else {
 					match push_token(&mut tokens, &accum, accum_type) {
 						Ok(_) => {},
 						Err(err) => return Err(err)
 					}
-					accum_type = TokenType::None;
+					accum_type = token_type(char);
+					accum = String::from(char);
 				}
 			},
 			TokenType::Matrix => {
@@ -223,7 +255,7 @@ pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 					accum_type = TokenType::None;
 				}
 			},
-			_ => {}
+			_ => return Err("Token type not yet implemented!".to_owned())
 		}
 	}
 

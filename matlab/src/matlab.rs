@@ -10,55 +10,6 @@ use crate::tokeniser::{
 
 use crate::colours::println_error;
 
-fn group_by_operators(expressions: &mut Vec<ExpressionElement>, operators: Vec<Operator>) {
-	let mut i = 1;
-	loop {
-		if i > expressions.len() - 1 {
-			break;
-		}
-
-		let token = match &expressions[i] {
-			ExpressionElement::Token(t) => t.clone(),
-			ExpressionElement::Expression(_) => {
-				i += 1;
-				continue
-			}
-		};
-		if let Token::Operator(operator) = &token && operators.contains(operator) {
-			i -= 1;
-			let slice: &Vec<ExpressionElement> = &expressions.drain(i..i+3).collect();
-			let expression = ExpressionElement::Expression(Box::new(Expression {
-				lhs: slice[0].clone(),
-				operator: *operator,
-				rhs: slice[2].clone()
-			}));
-			expressions.insert(i, expression);
-		}
-
-		i += 1;
-	}
-}
-
-fn tokens_to_expressions(tokens: &Vec<Token>) -> Result<Vec<ExpressionElement>, &str> {
-	let mut expressions: Vec<ExpressionElement> = tokens.iter()
-		.map(|token| ExpressionElement::Token(token.clone())).collect();
-
-	group_by_operators(&mut expressions, vec![Operator::Power]);
-	group_by_operators(&mut expressions, vec![Operator::Multiply, Operator::Divide]);
-	group_by_operators(&mut expressions, vec![Operator::Add, Operator::Subtract]);
-	group_by_operators(&mut expressions, vec![
-		Operator::EqualTo,
-		Operator::NotEqualTo,
-		Operator::LessThan,
-		Operator::LessThanOrEqualTo,
-		Operator::GreaterThan,
-		Operator::GreaterThanOrEqualTo
-	]);
-	group_by_operators(&mut expressions, vec![Operator::Assign]);
-
-	Ok(expressions)
-}
-
 pub struct Evaluator {
 	variables: BTreeMap<String, Token>
 }
@@ -76,22 +27,121 @@ impl Evaluator {
 			}
 		};
 
-		let expression_list = match tokens_to_expressions(&tokens) {
+		match self.evaluate_tokens(&tokens) {
+			Ok(t) => print_token(&t, &self.variables),
+			Err(err) => println_error(format!("Error: {}", err))
+		};
+	}
+	fn evaluate_tokens(&mut self, tokens: &Vec<Token>) -> TokenResult {
+		let expression_list = match self.tokens_to_expressions(&tokens) {
 			Ok(e) => e,
 			Err(err) => {
-				println_error(format!("Error: {}", err));
-				return;
+				return Err(err.to_owned());
 			}
 		};
 
-		let result = match expression_list[0].evaluate(&mut self.variables) {
-			Ok(t) => t,
-			Err(err) => {
-				println_error(format!("Error: {}", err));
-				return;
+		if expression_list.len() == 0 {
+			return Err("No result".to_owned());
+		}
+		
+		match expression_list[0].evaluate(&mut self.variables) {
+			Ok(t) => Ok(t),
+			Err(err) => return Err(err)
+		}
+	}
+	fn group_by_operators(&self, expressions: &mut Vec<ExpressionElement>, operators: Vec<Operator>) {
+		let mut i = 1;
+		while i < expressions.len() - 1 {
+			let token = match &expressions[i] {
+				ExpressionElement::Token(t) => t.clone(),
+				ExpressionElement::Expression(_) => {
+					i += 1;
+					continue
+				}
+			};
+			if let Token::Operator(operator) = &token && operators.contains(operator) {
+				i -= 1;
+				let slice: &Vec<ExpressionElement> = &expressions.drain(i..i+3).collect();
+				let expression = ExpressionElement::Expression(Box::new(Expression {
+					lhs: slice[0].clone(),
+					operator: *operator,
+					rhs: slice[2].clone()
+				}));
+				expressions.insert(i, expression);
 			}
-		};
-		print_token(&result, &self.variables);
+
+			i += 1;
+		}
+	}
+
+	fn tokens_to_expressions(&mut self, tokens: &Vec<Token>) -> Result<Vec<ExpressionElement>, String> {
+		let mut tokens = tokens.clone();
+
+		// handle groupers
+		{
+			let mut i = 0;
+			while i < tokens.len() {
+				if let Token::Operator(op) = tokens[i] && op == Operator::OpenGroup {
+					let start_idx = i;
+					i += 1;
+
+					let mut inner_counter = 1;
+					loop {
+						if i >= tokens.len() {
+							return Err("Could not resolve unclosed grouped expression".to_owned());
+						}
+						if let Token::Operator(op) = tokens[i] {
+							match op {
+								Operator::OpenGroup => inner_counter += 1,
+								Operator::CloseGroup => inner_counter -= 1,
+								_ => {}
+							}
+						}
+
+						if inner_counter == 0 {
+							break;
+						}
+
+						i += 1;
+					}
+					if let Token::Operator(op) = tokens[i] && op != Operator::CloseGroup {
+						continue;
+					}
+
+					// include grouper operators to remove from tokens
+					let grouped_tokens: Vec<Token> = tokens.drain(start_idx..i + 1).collect();
+					// remove grouper operators when evaluating inner expression
+					let grouped_tokens: Vec<Token> = grouped_tokens[1..&grouped_tokens.len() - 1].to_vec();
+					match self.evaluate_tokens(&grouped_tokens) {
+						Ok(t) => {
+							tokens.insert(start_idx, t);
+						},
+						Err(err) => return Err(err)
+					};
+					i = start_idx;
+				}
+
+				i += 1;
+			}
+		}
+
+		let mut expressions: Vec<ExpressionElement> = tokens.iter()
+			.map(|token| ExpressionElement::Token(token.clone())).collect();
+
+		self.group_by_operators(&mut expressions, vec![Operator::Power]);
+		self.group_by_operators(&mut expressions, vec![Operator::Multiply, Operator::Divide]);
+		self.group_by_operators(&mut expressions, vec![Operator::Add, Operator::Subtract]);
+		self.group_by_operators(&mut expressions, vec![
+			Operator::EqualTo,
+			Operator::NotEqualTo,
+			Operator::LessThan,
+			Operator::LessThanOrEqualTo,
+			Operator::GreaterThan,
+			Operator::GreaterThanOrEqualTo
+		]);
+		self.group_by_operators(&mut expressions, vec![Operator::Assign]);
+
+		Ok(expressions)
 	}
 }
 
@@ -212,9 +262,10 @@ fn equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 			// error rather than silently fail because this is likely a mistake
 			_ => Err("Cannot compare equality of different types".to_owned())
 		},
-		//Token::Matrix(lhs) => match rhs {
-		//	Token::Matrix(rhs) => {}
-		//}
+		Token::Matrix(lhs) => match rhs {
+			Token::Matrix(rhs) => Ok(Token::Number(if lhs.equals(rhs) { 1.0 } else { 0.0 })),
+			_ => Err("Cannot compare equality of matrix to RHS type".to_owned())
+		}
 		_ => Err("Cannot compare equality of LHS type".to_owned())
 	}
 }
@@ -225,9 +276,10 @@ fn not_equal_to(lhs: &mut Token, rhs: &mut Token) -> TokenResult {
 			// error rather than silently fail because this is likely a mistake
 			_ => Err("Cannot compare inequality of different types".to_owned())
 		},
-		//Token::Matrix(lhs) => match rhs {
-		//	Token::Matrix(rhs) => {}
-		//}
+		Token::Matrix(lhs) => match rhs {
+			Token::Matrix(rhs) => Ok(Token::Number(if !lhs.equals(rhs) { 1.0 } else { 0.0 })),
+			_ => Err("Cannot compare inequality of matrix to RHS type".to_owned())
+		}
 		_ => Err("Cannot compare inequality of LHS type".to_owned())
 	}
 }
