@@ -1,10 +1,16 @@
 use std::io::{stdin, stdout, Write};
 
 mod tools;
+
 mod colours;
 use colours::println_error;
+
 mod matrix;
+
 mod tokeniser;
+
+mod parser;
+
 mod matlab;
 use crate::matlab::Evaluator;
 

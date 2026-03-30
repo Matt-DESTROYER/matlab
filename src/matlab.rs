@@ -125,9 +125,9 @@ impl Evaluator {
 	}
 
 	fn group_by_operators(&self, expressions: &mut Vec<ExpressionElement>, operators: Vec<Operator>) {
-		if expressions.len() == 0 { return; }
+		if expressions.len() < 2 { return; }
 		let mut i = 1;
-		while i < expressions.len() - 1 {
+		while i < expressions.len() - 2 {
 			let token = match &expressions[i] {
 				ExpressionElement::Token(t) => t.clone(),
 				ExpressionElement::Expression(_) => {
