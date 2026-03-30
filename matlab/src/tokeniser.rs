@@ -5,7 +5,7 @@ use std::str::FromStr;
 use crate::matrix::Matrix;
 use crate::tools::Searchable;
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
 	Add,
 	Subtract,
@@ -21,7 +21,8 @@ pub enum Operator {
 	GreaterThanOrEqualTo,
 	OpenGroup,
 	CloseGroup,
-	Assign
+	Assign,
+	Separator
 }
 
 impl Display for Operator {
@@ -41,8 +42,80 @@ impl Display for Operator {
 			Operator::GreaterThanOrEqualTo => write!(f, "GreaterThanOrEqualTo"),
 			Operator::OpenGroup            => write!(f, "OpenGroup"),
 			Operator::CloseGroup           => write!(f, "CloseGroup"),
-			Operator::Assign               => write!(f, "Assign")
+			Operator::Assign               => write!(f, "Assign"),
+			Operator::Separator            => write!(f, "Separator")
 		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Function {
+	Sin,
+	Cos,
+	Tan
+}
+
+impl Display for Function {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Function::Sin => write!(f, "sin"),
+			Function::Cos => write!(f, "cos"),
+			Function::Tan => write!(f, "tan")
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct Tuple {
+	elems: Vec<Token>
+}
+
+impl Tuple {
+	pub fn new(elems: Vec<Token>) -> Self {
+		Self {
+			elems
+		}
+	}
+
+	pub fn size(&self) -> usize {
+		self.elems.len()
+	}
+
+	pub fn args(&self) -> &Vec<Token> {
+		&self.elems
+	}
+
+	pub fn at(&self, index: usize) -> &Token {
+		&self.elems[index]
+	}
+	pub fn set(&mut self, index: usize, token: &Token) {
+		self.elems[index] = token.clone();
+	}
+
+	pub fn append(&mut self, token: &Token) {
+		self.elems.push(token.clone());
+	}
+	pub fn prepend(&mut self, token: &Token) {
+		self.elems.insert(0, token.clone());
+	}
+
+	pub fn append_tuple(&mut self, other: &Self) {
+		self.elems.append(&mut other.elems.clone());
+	}
+	pub fn prepend_tuple(&mut self, other: &Self) {
+		for i in 0..other.elems.len() {
+			self.elems.insert(i, other.elems[i].clone());
+		}
+	}
+}
+
+impl Display for Tuple {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "(")?;
+		for item in &self.elems {
+			write!(f, "{}", item)?;
+		}
+		write!(f, ")")
 	}
 }
 
@@ -51,8 +124,9 @@ pub enum Token {
 	Number(f64),
 	Variable(String),
 	Operator(Operator),
-	Function(String),
-	Matrix(Matrix)
+	Tuple(Tuple),
+	Matrix(Matrix),
+	Function(Function)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -61,13 +135,14 @@ enum TokenType {
 	Number,
 	Variable,
 	Operator,
+	Separator,
 	Function,
 	Matrix
 }
 
 pub type TokenResult = Result<Token, String>;
 
-const VALID_OPERATORS: [&str; 16] = ["^", "**", "*", "/", "+", "-", "==", "!=", "<", "<=", ">", ">=", "(", ")", "!", "="];
+const VALID_OPERATORS: [&str; 17] = ["^", "**", "*", "/", "+", "-", "==", "!=", "<", "<=", ">", ">=", "(", ")", "!", "=", ","];
 const MAX_OPERATOR_LENGTH: usize = 2;
 fn valid_operator(operator: &str) -> bool {
 	VALID_OPERATORS.contains(&operator)
@@ -90,6 +165,9 @@ fn is_operator(c: char) -> bool {
 fn is_variable(c: char) -> bool {
 	c.is_alphabetic()
 }
+fn is_separator(c: char) -> bool {
+	c == ','
+}
 
 fn parse_operator(operator: &str) -> Result<Operator, &str> {
 	Ok(match operator {
@@ -108,7 +186,17 @@ fn parse_operator(operator: &str) -> Result<Operator, &str> {
 		")"        => Operator::CloseGroup,
 		"!"        => Operator::Not,
 		"="        => Operator::Assign,
+		","        => Operator::Separator,
 		_ => return Err("Operator not yet implemented")
+	})
+}
+
+fn parse_function(function: &str) -> Result<Function, String> {
+	Ok(match function {
+		"sin" => Function::Sin,
+		"cos" => Function::Cos,
+		"tan" => Function::Tan,
+		_ => return Err(format!("No built-in function '{}' exists", function))
 	})
 }
 
@@ -118,30 +206,25 @@ fn parse_token(raw_token: &str, token_type: TokenType) -> TokenResult {
 	}
 
 	match token_type {
-			TokenType::Number => {
-				let num: f64 = match raw_token.parse() {
-					Ok(n) => n,
-					Err(_) => return Err(format!("Number parsing error: '{}'", raw_token))
-				};
-
-				Ok(Token::Number(num))
+			TokenType::Number => match raw_token.parse() {
+				Ok(n) => Ok(Token::Number(n)),
+				Err(_) => Err(format!("Number parsing error: '{}'", raw_token))
 			},
-			TokenType::Variable | TokenType::Function => Ok(Token::Variable(raw_token.to_owned())),
-			TokenType::Operator => {
-				let operator = match parse_operator(raw_token) {
-					Ok(o) => o,
-					Err(err) => return Err(err.to_owned()),
-				};
-
-				Ok(Token::Operator(operator))
+			TokenType::Variable => Ok(Token::Variable(raw_token.to_owned())),
+			TokenType::Function => {
+				let raw_token = raw_token.to_lowercase();
+				match parse_function(&raw_token) {
+					Ok(f) => Ok(Token::Function(f)),
+					Err(err) => return Err(format!("Function parsing error: {}", err))
+				}
 			},
-			TokenType::Matrix => {
-				let mat: Matrix = match raw_token.parse() {
-					Ok(m) => m,
+			TokenType::Operator => match parse_operator(raw_token) {
+				Ok(o) => Ok(Token::Operator(o)),
+				Err(err) => return Err(err.to_owned()),
+			},
+			TokenType::Matrix => match raw_token.parse() {
+					Ok(m) => Ok(Token::Matrix(m)),
 					Err(err) => return Err(format!("Matrix parsing error: '{}'", err))
-				};
-
-				Ok(Token::Matrix(mat))
 			},
 			_ => Err(format!("Token type not implemented yet."))
 		}
@@ -159,6 +242,8 @@ fn push_token(tokens: &mut Vec<Token>, raw_token: &str, token_type: TokenType) -
 fn token_type(char: char) -> TokenType {
 	if char.is_whitespace() {
 		TokenType::None
+	} else if is_separator(char) {
+		TokenType::Separator
 	} else if is_number(char) {
 		TokenType::Number
 	} else if is_matrix(char) {
@@ -255,6 +340,14 @@ pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 					accum_type = TokenType::None;
 				}
 			},
+			TokenType::Separator => {
+				match push_token(&mut tokens, &accum, accum_type) {
+					Ok(_) => {},
+					Err(err) => return Err(err)
+				}
+				accum_type = token_type(char);
+				accum = String::from(char);
+			},
 			_ => return Err("Token type not yet implemented!".to_owned())
 		}
 	}
@@ -269,6 +362,17 @@ pub fn tokenise(input: &str) -> Result<Vec<Token>, String> {
 	Ok(tokens)
 }
 
+impl Display for Token {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Token::Number(n) => write!(f, "Number({})", n),
+			Token::Operator(o) => write!(f, "Operator({})", o),
+			Token::Matrix(m) => write!(f, "Matrix({})", m),
+			Token::Variable(v) => write!(f, "Variable({}) = ", v),
+			_ => write!(f, "Display not implemented for token type")
+		}
+	}
+}
 pub fn print_token(token: &Token, variables: &BTreeMap<String, Token>) {
 	match token {
 		Token::Number(n) => println!("{}", n),
