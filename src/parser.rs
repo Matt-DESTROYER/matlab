@@ -32,8 +32,8 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 		}
 	}
 
-	pub fn add_precedence_level(&mut self, operators: &Vec<Token>) {
-		let operators: Vec<Token> = operators.clone();
+	pub fn add_precedence_level(&mut self, operators: &[Token]) {
+		let operators: Vec<Token> = operators.to_vec();
 		self.operators.push(operators);
 	}
 
@@ -85,17 +85,19 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 		Ok(None)
 	}
 
-	fn generate_expressions_at_level(&self, expression_list: &mut Vec<ExpressionElement<Token>>, operators: &Vec<Token>) -> Result<(), String> {
+	fn generate_expressions_at_level(&self, expression_list: &mut Vec<ExpressionElement<Token>>, operators: &[Token]) -> Result<(), String> {
 		if expression_list.len() < 1 { return Ok(()) }
 
 		let mut i = 0;
-		while i < expression_list.len() - 1 {
+		while i < expression_list.len() {
 			// extract the current token
 			if let ExpressionElement::Token(token) = &expression_list[i] && operators.contains(token) {
 				let token = token.clone();
 
 				if i == 0 {
 					return Err("Dangling operator without LHS found".to_owned())
+				} else if i == expression_list.len() - 1 {
+					return  Err("Dangling operator without RHS found".to_owned());
 				}
 				i -= 1;
 
@@ -131,6 +133,10 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 			let grouped_tokens: Vec<ExpressionElement<Token>> = expression_list.drain(next_group).collect();
 			// remove grouper operators when evaluating inner expression
 			let mut grouped_tokens: Vec<ExpressionElement<Token>> = grouped_tokens[1..&grouped_tokens.len() - 1].to_vec();
+			if grouped_tokens.len() == 2 {
+				return Err("Found parenthesis without internal expression".to_owned());
+			}
+
 			match self.internal_parse(&mut grouped_tokens) {
 				Ok(expression) => {
 					expression_list.insert(start, expression);
@@ -147,11 +153,11 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 		Ok(expression_list[0].clone())
 	}
 
-	pub fn parse(&self, tokens: &Vec<Token>) -> Result<ExpressionElement<Token>, String> {
+	pub fn parse(&self, tokens: &[Token]) -> Result<ExpressionElement<Token>, String> {
 		if tokens.len() == 0 { return Err("No tokens provided".to_owned()) }
 
-		let mut expression_list: Vec<ExpressionElement<Token>> = tokens.clone().into_iter()
-			.map(|token| ExpressionElement::Token(token)).collect();
+		let mut expression_list: Vec<ExpressionElement<Token>> = tokens.iter()
+			.map(|token| ExpressionElement::Token(token.clone())).collect();
 
 		self.internal_parse(&mut expression_list)
 	}
