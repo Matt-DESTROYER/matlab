@@ -37,38 +37,47 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 		self.operators.push(operators);
 	}
 
-	fn find_next_group(&self, tokens: &Vec<Token>) -> Result<Option<Range<usize>>, String> {
+	fn find_next_group(&self, expression_list: &mut Vec<ExpressionElement<Token>>) -> Result<Option<Range<usize>>, String> {
 		let mut i = 0;
 
-		while i < tokens.len() {
-			if tokens[i] == self.open_grouper {
-				let start_idx = i;
-				i += 1;
-				let mut inner_counter = 1;
-				loop {
-					if i >= tokens.len() {
-						return Err("Could not resolve unclosed grouped expression".to_owned());
-					}
-
-					if tokens[i] == self.open_grouper {
-						inner_counter += 1;
-					} else if tokens[i] == self.close_grouper {
-						inner_counter -= 1;
-					}
-
-					if inner_counter == 0 {
-						break;
-					}
-
+		while i < expression_list.len() {
+			match &expression_list[i] {
+				ExpressionElement::Expression(_) => {
 					i += 1;
-				}
+					continue
+				},
+				ExpressionElement::Token(token) => {
+					let token = token.clone();
+					if token == self.open_grouper {
+						let start_idx = i;
+						i += 1;
+						let mut inner_counter = 1;
+						loop {
+							if i >= expression_list.len() {
+								return Err("Could not resolve unclosed grouped expression".to_owned());
+							}
 
-				if tokens[i] != self.close_grouper {
-					continue;
-				}
+							if let ExpressionElement::Token(token) = &expression_list[i] && *token == self.open_grouper {
+								inner_counter += 1;
+							} else if let ExpressionElement::Token(token) = &expression_list[i] && *token == self.close_grouper {
+								inner_counter -= 1;
+							}
 
-				return Ok(Some(start_idx..i + 1));
-			}
+							if inner_counter == 0 {
+								break;
+							}
+
+							i += 1;
+						}
+
+						if let ExpressionElement::Token(token) = &expression_list[i] && *token != self.close_grouper {
+							continue;
+						}
+
+						return Ok(Some(start_idx..i + 1));
+					}
+				}
+		}
 
 			i += 1;
 		}
@@ -76,19 +85,18 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 		Ok(None)
 	}
 
-	fn generate_expressions_at_level(&self, expression_list: &mut Vec<ExpressionElement<Token>>, operators: &Vec<Token>) {
-		if expression_list.len() < 2 { return }
+	fn generate_expressions_at_level(&self, expression_list: &mut Vec<ExpressionElement<Token>>, operators: &Vec<Token>) -> Result<(), String> {
+		if expression_list.len() < 1 { return Ok(()) }
 
 		let mut i = 0;
-		while i < expression_list.len() - 2 {
+		while i < expression_list.len() - 1 {
 			// extract the current token
-			let token = match &expression_list[i] {
-				ExpressionElement::Expression(_) => continue,
-				ExpressionElement::Token(t) => t
-			}.clone();
+			if let ExpressionElement::Token(token) = &expression_list[i] && operators.contains(token) {
+				let token = token.clone();
 
-			// if it's an operator in this precedence level
-			if operators.contains(&token) {
+				if i == 0 {
+					return Err("Dangling operator without LHS found".to_owned())
+				}
 				i -= 1;
 
 				// move the surrounding elements (tokens _OR_ expressions) into a single expression
@@ -103,17 +111,14 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 
 			i += 1;
 		}
+
+		Ok(())
 	}
 
-	pub fn parse(&self, tokens: &Vec<Token>) -> Result<ExpressionElement<Token>, String> {
-		if tokens.len() == 0 { return Err("No tokens provided".to_owned()) }
-
-		let mut expression_list: Vec<ExpressionElement<Token>> = tokens.clone().into_iter()
-			.map(|token| ExpressionElement::Token(token)).collect();
-
+	fn internal_parse(&self, expression_list: &mut Vec<ExpressionElement<Token>>) -> Result<ExpressionElement<Token>, String> {
 		// handle groups by finding each group and parsing them first
 		loop {
-			let next_group = match self.find_next_group(&tokens) {
+			let next_group = match self.find_next_group(expression_list) {
 				Ok(range) => match range {
 					Some(range) => range,
 					None => break
@@ -125,10 +130,10 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 			// include grouper operators to remove from tokens
 			let grouped_tokens: Vec<ExpressionElement<Token>> = expression_list.drain(next_group).collect();
 			// remove grouper operators when evaluating inner expression
-			let grouped_tokens: Vec<ExpressionElement<Token>> = grouped_tokens[1..&grouped_tokens.len() - 1].to_vec();
-			match self.parse(&grouped_tokens) {
+			let mut grouped_tokens: Vec<ExpressionElement<Token>> = grouped_tokens[1..&grouped_tokens.len() - 1].to_vec();
+			match self.internal_parse(&mut grouped_tokens) {
 				Ok(expression) => {
-					tokens.insert(start, expression);
+					expression_list.insert(start, expression);
 				},
 				Err(err) => return Err(err)
 			};
@@ -136,9 +141,18 @@ impl<Token: PartialEq + Clone> Parser<Token> {
 
 		// create AST by going through each precedence level and generating expressions where operators are found
 		for precedence in &self.operators {
-			self.generate_expressions_at_level(&mut expression_list, &precedence);
+			self.generate_expressions_at_level(expression_list, &precedence)?;
 		}
 
 		Ok(expression_list[0].clone())
+	}
+
+	pub fn parse(&self, tokens: &Vec<Token>) -> Result<ExpressionElement<Token>, String> {
+		if tokens.len() == 0 { return Err("No tokens provided".to_owned()) }
+
+		let mut expression_list: Vec<ExpressionElement<Token>> = tokens.clone().into_iter()
+			.map(|token| ExpressionElement::Token(token)).collect();
+
+		self.internal_parse(&mut expression_list)
 	}
 }
