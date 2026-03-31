@@ -17,7 +17,7 @@ pub struct Expression<Token: PartialEq + Clone> {
 	pub rhs: ExpressionElement<Token>
 }
 
-struct Parser<Token: PartialEq + Clone> {
+pub struct Parser<Token: PartialEq + Clone> {
 	operators: Vec<Vec<Token>>,
 	open_grouper: Token,
 	close_grouper: Token
